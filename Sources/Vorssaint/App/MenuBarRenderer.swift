@@ -195,6 +195,8 @@ enum MenuBarSegment {
     case largeSymbol(String)
     case metricBlock(label: String, value: String, minimumValue: String, style: MenuBarBlockStyle, pressure: MemoryPressure?)
     case usageBarBlock(label: String, fraction: Double?, style: MenuBarBlockStyle, pressure: MemoryPressure?)
+    case sparklineBlock(label: String, values: [Double], maxValue: Double?, style: MenuBarBlockStyle)
+    case networkSparklineBlock(upValues: [Double], downValues: [Double], style: MenuBarBlockStyle)
     case networkBlock(down: String, up: String, style: MenuBarBlockStyle)
     case diskActivityBlock(read: String, write: String, style: MenuBarBlockStyle)
     case batteryBlock(percent: Int, isCharging: Bool, style: MenuBarBlockStyle)
@@ -465,7 +467,11 @@ enum MenuBarRenderer {
                                       style: MenuBarBlockStyle) -> [MenuBarSegment] {
         var groups: [[MenuBarSegment]] = []
         let appearance = MenuBarMetricAppearance.current
-        let usesBars = appearance == .bars
+        // Sparklines cover CPU/GPU/memory/network/disk usage (disk on its own
+        // 30-day timescale — see MenuBarSpacingSupport.MenuBarMetricAppearance);
+        // every other bar-eligible metric keeps rendering as a bar while
+        // Histogram mode is selected.
+        let usesBars = appearance == .bars || appearance == .sparklines
         let combineTemperatures = appearance.allowsCombinedTemperatures
             && UserDefaults.standard.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
         let enabled = Set(metrics)
@@ -511,7 +517,12 @@ enum MenuBarRenderer {
                     break
                 }
                 if let usage = snapshot.cpuUsage {
-                    if usesBars {
+                    if appearance == .sparklines {
+                        groups.append([.sparklineBlock(label: "CPU",
+                                                       values: snapshot.cpuHistory,
+                                                       maxValue: 1.0,
+                                                       style: style)])
+                    } else if usesBars {
                         groups.append([.usageBarBlock(label: "CPU",
                                                       fraction: usage,
                                                       style: style,
@@ -560,7 +571,12 @@ enum MenuBarRenderer {
                     break
                 }
                 if let usage = snapshot.gpuUsage {
-                    if usesBars {
+                    if appearance == .sparklines {
+                        groups.append([.sparklineBlock(label: "GPU",
+                                                       values: snapshot.gpuHistory,
+                                                       maxValue: 1.0,
+                                                       style: style)])
+                    } else if usesBars {
                         groups.append([.usageBarBlock(label: "GPU",
                                                       fraction: usage,
                                                       style: style,
@@ -576,7 +592,12 @@ enum MenuBarRenderer {
             case .memory:
                 let memoryStyle = MemoryMenuBarStyle.current
                 let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
-                if usesBars {
+                if appearance == .sparklines {
+                    groups.append([.sparklineBlock(label: "RAM",
+                                                   values: MonitorMemoryMetric.current.history(in: snapshot),
+                                                   maxValue: 1.0,
+                                                   style: style)])
+                } else if usesBars {
                     groups.append([.usageBarBlock(label: "RAM",
                                                   fraction: MenuBarUsageBarSupport.memoryFraction(used: memoryValue,
                                                                                                   total: snapshot.memoryTotal),
@@ -594,13 +615,28 @@ enum MenuBarRenderer {
                 }
             case .network:
                 if let down = snapshot.netDownBytesPerSec, let up = snapshot.netUpBytesPerSec {
-                    groups.append([.networkBlock(down: MetricFormat.bytesPerSecCompact(down),
-                                                 up: MetricFormat.bytesPerSecCompact(up),
-                                                 style: style)])
+                    if appearance == .sparklines {
+                        groups.append([.networkSparklineBlock(upValues: snapshot.netUpHistory,
+                                                              downValues: snapshot.netDownHistory,
+                                                              style: style)])
+                    } else {
+                        groups.append([.networkBlock(down: MetricFormat.bytesPerSecCompact(down),
+                                                     up: MetricFormat.bytesPerSecCompact(up),
+                                                     style: style)])
+                    }
                 }
             case .diskUsage:
                 if let disk = primaryDisk(from: snapshot.disk) {
-                    if usesBars {
+                    if appearance == .sparklines {
+                        // A 30-day, hourly-sampled window (DiskUsageHistoryStore),
+                        // not the few-minute rolling window CPU/GPU/memory/network
+                        // use — disk usage moves too slowly for that to show
+                        // anything but a flat line.
+                        groups.append([.sparklineBlock(label: "DSK",
+                                                       values: snapshot.diskUsageHistory,
+                                                       maxValue: 1.0,
+                                                       style: style)])
+                    } else if usesBars {
                         groups.append([.usageBarBlock(label: "DSK",
                                                       fraction: disk.usedFraction,
                                                       style: style,
@@ -818,6 +854,70 @@ enum MenuBarRenderer {
         return segments
     }
 
+    /// A single combined tooltip listing every pinned sparkline metric's
+    /// current instant value, e.g. "CPU 42% · GPU 18% · Net ↓1.2MB/s
+    /// ↑340KB/s". Sparkline mode trades the literal number for a shape, so
+    /// this is where that number comes back on hover — one tooltip for the
+    /// whole status item rather than a separate one per graph, since pixel-
+    /// accurate per-region hit rects would mean reverse-engineering
+    /// NSButton's internal attributed-string layout (padding, the leading
+    /// glyph, vertical centering) instead of relying on it. Returns nil when
+    /// not in sparkline mode or no sparkline-eligible metric has data, so
+    /// callers can leave any other tooltip untouched.
+    /// One metric line in the hover tooltip's mini table: an SF Symbol
+    /// identifying the metric, its short label, and its already-formatted
+    /// value. Kept as a struct (not a pre-joined string) so the custom
+    /// `StatusItemHoverPanel` can lay these out as an aligned symbol/label/
+    /// value table instead of a run-on dot-separated line.
+    struct HoverMetricRow {
+        let symbolName: String
+        let label: String
+        let value: String
+    }
+
+    static func sparklineToolTipRows(for snapshot: SystemSnapshot, metrics: [MenuBarMetric]) -> [HoverMetricRow] {
+        guard MenuBarMetricAppearance.current == .sparklines else { return [] }
+        var rows: [HoverMetricRow] = []
+        if metrics.contains(.cpu), let usage = snapshot.cpuUsage {
+            rows.append(HoverMetricRow(symbolName: MenuBarMetric.cpu.symbolName, label: "CPU", value: percent(usage)))
+        }
+        if metrics.contains(.gpu), let usage = snapshot.gpuUsage {
+            rows.append(HoverMetricRow(symbolName: MenuBarMetric.gpu.symbolName, label: "GPU", value: percent(usage)))
+        }
+        if metrics.contains(.memory) {
+            let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
+            if let fraction = MenuBarUsageBarSupport.memoryFraction(used: memoryValue, total: snapshot.memoryTotal) {
+                rows.append(HoverMetricRow(symbolName: MenuBarMetric.memory.symbolName,
+                                           label: "RAM",
+                                           value: percent(fraction)))
+            }
+        }
+        if metrics.contains(.network),
+           let down = snapshot.netDownBytesPerSec,
+           let up = snapshot.netUpBytesPerSec {
+            rows.append(HoverMetricRow(symbolName: MenuBarMetric.network.symbolName,
+                                       label: "Net",
+                                       value: "↓" + MetricFormat.bytesPerSecCompact(down)
+                                              + " ↑" + MetricFormat.bytesPerSecCompact(up)))
+        }
+        if metrics.contains(.diskUsage), let disk = primaryDisk(from: snapshot.disk) {
+            rows.append(HoverMetricRow(symbolName: MenuBarMetric.diskUsage.symbolName,
+                                       label: "DSK",
+                                       value: percent(disk.usedFraction)))
+        }
+        return rows
+    }
+
+    /// Same data as `sparklineToolTipRows`, joined into one line — for the
+    /// per-metric native `NSStatusItem.toolTip` in "separate metrics" mode,
+    /// which (unlike the custom `StatusItemHoverPanel`) can only ever show
+    /// plain unstyled text.
+    static func sparklineToolTip(for snapshot: SystemSnapshot, metrics: [MenuBarMetric]) -> String? {
+        let rows = sparklineToolTipRows(for: snapshot, metrics: metrics)
+        guard !rows.isEmpty else { return nil }
+        return rows.map { "\($0.label) \($0.value)" }.joined(separator: " · ")
+    }
+
     /// The colored attributed string for the status item. Only alert/status dots
     /// get fixed colors; text and image-backed metric blocks use dynamic system
     /// colors so they follow the menu bar appearance over each wallpaper.
@@ -847,6 +947,15 @@ enum MenuBarRenderer {
                                                       fraction: fraction,
                                                       style: style,
                                                       pressure: pressure))
+            case let .sparklineBlock(label, values, maxValue, style):
+                result.append(sparklineBlockAttachment(label: label,
+                                                        values: values,
+                                                        maxValue: maxValue,
+                                                        style: style))
+            case let .networkSparklineBlock(upValues, downValues, style):
+                result.append(networkSparklineBlockAttachment(upValues: upValues,
+                                                               downValues: downValues,
+                                                               style: style))
             case let .networkBlock(down, up, style):
                 result.append(networkBlockAttachment(down: down, up: up, style: style))
             case let .diskActivityBlock(read, write, style):
@@ -924,6 +1033,35 @@ enum MenuBarRenderer {
         // The gauge outline fills the image symmetrically, so the offset
         // centers the image itself on the status font's box (ascender
         // 11.21, descender -2.45 at 11.6pt).
+        attachment.bounds = NSRect(x: 0,
+                                   y: (style == .readable ? -6.6 : -5.6) + legacyBlockAttachmentNudge,
+                                   width: image.size.width,
+                                   height: image.size.height)
+        return NSAttributedString(attachment: attachment)
+    }
+
+    private static func sparklineBlockAttachment(label: String,
+                                                 values: [Double],
+                                                 maxValue: Double?,
+                                                 style: MenuBarBlockStyle) -> NSAttributedString {
+        let image = sparklineBlockImage(label: label, values: values, maxValue: maxValue, style: style)
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        // Same slot as the usage bar it replaces, so switching appearance
+        // modes doesn't reflow anything else in the bar.
+        attachment.bounds = NSRect(x: 0,
+                                   y: (style == .readable ? -6.6 : -5.6) + legacyBlockAttachmentNudge,
+                                   width: image.size.width,
+                                   height: image.size.height)
+        return NSAttributedString(attachment: attachment)
+    }
+
+    private static func networkSparklineBlockAttachment(upValues: [Double],
+                                                        downValues: [Double],
+                                                        style: MenuBarBlockStyle) -> NSAttributedString {
+        let image = networkSparklineBlockImage(upValues: upValues, downValues: downValues, style: style)
+        let attachment = NSTextAttachment()
+        attachment.image = image
         attachment.bounds = NSRect(x: 0,
                                    y: (style == .readable ? -6.6 : -5.6) + legacyBlockAttachmentNudge,
                                    width: image.size.width,
@@ -1109,6 +1247,246 @@ enum MenuBarRenderer {
         image.isTemplate = false
         blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
         return image
+    }
+
+    /// A history line needs enough horizontal room to actually show a shape —
+    /// the ~9-10pt gauge slot `usageBarBlockImage` uses is wide enough for a
+    /// bar but too narrow to plot a legible trend (a handful of pixel-columns
+    /// isn't a graph). Sized closer to Stats' own menu bar LineChart widget
+    /// (32pt default), so this block is deliberately wider than the bar/value
+    /// blocks next to it — that width is the actual point of the feature.
+    /// Not cached: the history array is effectively unique every tick, so a
+    /// cache key built from it would almost never hit and would just grow
+    /// `blockImageCache` for no benefit. Redrawing one small image per
+    /// refresh is cheap enough to not matter.
+    static func sparklineSize(style: MenuBarBlockStyle) -> CGSize {
+        CGSize(width: style == .readable ? 34 : 32,
+              height: style == .readable ? 22 : 20)
+    }
+
+    private static func sparklineBlockImage(label: String,
+                                            values: [Double],
+                                            maxValue: Double?,
+                                            style: MenuBarBlockStyle) -> NSImage {
+        let size = sparklineSize(style: style)
+        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .semibold)
+        let labelAttributes = dynamicTextAttributes(font: labelFont)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let labelGap: CGFloat = 2
+        let plotWidth: CGFloat = size.width - labelWidth - labelGap
+        let plotHeight: CGFloat = style == .readable ? 20 : 18
+        let plotX = labelWidth + labelGap
+        let plotY = (size.height - plotHeight) / 2
+        // Same three Settings colors (Normal/Medium/High) the Bars style
+        // uses, at every tier — a sparkline used to keep its own hardcoded
+        // per-metric hue for the normal tier so several sparklines side by
+        // side stayed distinguishable, but that meant the Normal color
+        // picker in Settings silently did nothing here. Consistency with
+        // what Settings actually promises wins; tell metrics apart by
+        // position and the hover tooltip instead of by a color Settings
+        // doesn't control.
+        let color: NSColor? = values.last.map { value in
+            usageBarColor(hex: MenuBarUsageBarSupport.currentColorHex(for: MenuBarUsageBarSupport.currentLevel(for: value)))
+        }
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let characters = Array(label.prefix(3)).map(String.init)
+            let rowHeight = (size.height - 2) / 3
+            for (index, character) in characters.enumerated() {
+                let characterSize = (character as NSString).size(withAttributes: labelAttributes)
+                let x = (labelWidth - characterSize.width) / 2
+                let y = size.height - 1 - rowHeight * CGFloat(index + 1)
+                    + (rowHeight - characterSize.height) / 2
+                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttributes)
+            }
+
+            // No bordered gauge box here (unlike the usage bar): at this size
+            // a stroked outline plus its inset margin ate most of the
+            // available height, and iStat Menus' own inline graphs are
+            // borderless too — the plotted shape fills the whole slot.
+            let plotRect = NSRect(x: plotX, y: plotY, width: plotWidth, height: plotHeight)
+            guard values.count >= 2 else {
+                NSColor.secondaryLabelColor.setStroke()
+                let dash = NSBezierPath()
+                dash.move(to: NSPoint(x: plotRect.minX + 0.3, y: plotRect.midY))
+                dash.line(to: NSPoint(x: plotRect.maxX - 0.3, y: plotRect.midY))
+                dash.lineWidth = 1
+                dash.stroke()
+                return true
+            }
+
+            let points = sparklinePoints(values: values, in: plotRect, maxValue: maxValue)
+            let color = color ?? NSColor.secondaryLabelColor
+
+            // A bold, mostly-opaque fill reads as a solid shape regardless of
+            // menu bar background (light or dark); a pale accent color at low
+            // opacity all but disappears on a light menu bar.
+            let fill = NSBezierPath()
+            fill.move(to: NSPoint(x: points[0].x, y: plotRect.minY))
+            points.forEach { fill.line(to: $0) }
+            fill.line(to: NSPoint(x: points[points.count - 1].x, y: plotRect.minY))
+            fill.close()
+            // Fully opaque, not blended: any alpha < 1.0 here composites
+            // with the background into a visibly different effective shade
+            // than the 100%-opaque stroke on top of it — a "two blues" seam
+            // along every peak, not a WCAG contrast problem (that only
+            // checks color-vs-background, not fill-vs-stroke consistency).
+            color.setFill()
+            fill.fill()
+
+            let line = NSBezierPath()
+            line.move(to: points[0])
+            points.dropFirst().forEach { line.line(to: $0) }
+            line.lineWidth = 1.4
+            line.lineCapStyle = .round
+            line.lineJoinStyle = .round
+            color.setStroke()
+            line.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    /// AppKit port of `Sparkline.points(in:baselineY:)` (the SwiftUI dropdown
+    /// graph): same peak/normalization math, bottom-left origin instead of
+    /// SwiftUI's top-left. `rect` is the plot area in the image's own
+    /// coordinate space.
+    private static func sparklinePoints(values: [Double], in rect: NSRect, maxValue: Double?) -> [NSPoint] {
+        let peak = max(maxValue ?? (values.max() ?? 1), 0.0001)
+        let lastIndex = values.count - 1
+        return values.enumerated().map { index, value in
+            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(lastIndex)
+            let normalized = min(1, max(0, value / peak))
+            let y = rect.minY + rect.height * CGFloat(normalized)
+            return NSPoint(x: x, y: y)
+        }
+    }
+
+    /// A vertically mirrored variant of `sparklinePoints`: `baselineY` is the
+    /// zero-line (the center of the block, not its bottom), and `growingUp`
+    /// picks which half of the block this series occupies — true grows
+    /// toward the top (upload), false grows toward the bottom (download).
+    private static func mirroredSparklinePoints(values: [Double],
+                                                in rect: NSRect,
+                                                baselineY: CGFloat,
+                                                growingUp: Bool,
+                                                maxValue: Double?) -> [NSPoint] {
+        let peak = max(maxValue ?? (values.max() ?? 1), 0.0001)
+        let lastIndex = values.count - 1
+        return values.enumerated().map { index, value in
+            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(lastIndex)
+            let normalized = min(1, max(0, value / peak))
+            let magnitude = rect.height * CGFloat(normalized)
+            let y = baselineY + (growingUp ? magnitude : -magnitude)
+            return NSPoint(x: x, y: y)
+        }
+    }
+
+    /// A "butterfly" graph: upload grows up from a center line, download
+    /// grows down from it, sharing one peak so their heights are directly
+    /// comparable. Down and up are always their own fixed colors (green and
+    /// magenta/pink) rather than the shared Normal/Medium/High Settings
+    /// colors — direction, not usage level, is what this graph communicates,
+    /// so there's no "normal tier" for a Settings color to apply to. Same
+    /// light/dark-adaptive, WCAG 1.4.11-validated approach as
+    /// `networkDirectionColor` below.
+    private static func networkSparklineBlockImage(upValues: [Double],
+                                                    downValues: [Double],
+                                                    style: MenuBarBlockStyle) -> NSImage {
+        let size = sparklineSize(style: style)
+        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .semibold)
+        let labelAttributes = dynamicTextAttributes(font: labelFont)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let labelGap: CGFloat = 2
+        let plotWidth: CGFloat = size.width - labelWidth - labelGap
+        let plotHeight: CGFloat = style == .readable ? 20 : 18
+        let plotX = labelWidth + labelGap
+        let plotY = (size.height - plotHeight) / 2
+        let midY = plotY + plotHeight / 2
+        let sharedPeak = max(upValues.max() ?? 0, downValues.max() ?? 0, 0.0001)
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let characters = ["N", "E", "T"]
+            let rowHeight = (size.height - 2) / 3
+            for (index, character) in characters.enumerated() {
+                let characterSize = (character as NSString).size(withAttributes: labelAttributes)
+                let x = (labelWidth - characterSize.width) / 2
+                let y = size.height - 1 - rowHeight * CGFloat(index + 1)
+                    + (rowHeight - characterSize.height) / 2
+                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttributes)
+            }
+
+            guard upValues.count >= 2 || downValues.count >= 2 else {
+                NSColor.secondaryLabelColor.setStroke()
+                let dash = NSBezierPath()
+                dash.move(to: NSPoint(x: plotX + 0.3, y: midY))
+                dash.line(to: NSPoint(x: plotX + plotWidth - 0.3, y: midY))
+                dash.lineWidth = 1
+                dash.stroke()
+                return true
+            }
+
+            func drawHalf(values: [Double], growingUp: Bool, color: NSColor) {
+                guard values.count >= 2 else { return }
+                let halfRect = NSRect(x: plotX,
+                                      y: growingUp ? midY : plotY,
+                                      width: plotWidth,
+                                      height: plotHeight / 2)
+                let points = mirroredSparklinePoints(values: values,
+                                                     in: halfRect,
+                                                     baselineY: midY,
+                                                     growingUp: growingUp,
+                                                     maxValue: sharedPeak)
+                let fill = NSBezierPath()
+                fill.move(to: NSPoint(x: points[0].x, y: midY))
+                points.forEach { fill.line(to: $0) }
+                fill.line(to: NSPoint(x: points[points.count - 1].x, y: midY))
+                fill.close()
+                color.setFill()
+                fill.fill()
+
+                let line = NSBezierPath()
+                line.move(to: points[0])
+                points.dropFirst().forEach { line.line(to: $0) }
+                line.lineWidth = 1.2
+                line.lineCapStyle = .round
+                line.lineJoinStyle = .round
+                color.setStroke()
+                line.stroke()
+            }
+
+            drawHalf(values: upValues, growingUp: true, color: networkDirectionColor(up: true))
+            drawHalf(values: downValues, growingUp: false, color: networkDirectionColor(up: false))
+
+            let baseline = NSBezierPath()
+            baseline.move(to: NSPoint(x: plotX, y: midY))
+            baseline.line(to: NSPoint(x: plotX + plotWidth, y: midY))
+            baseline.lineWidth = 0.6
+            NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+            baseline.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    /// Light/dark-adaptive, WCAG 1.4.11-checked (≥3:1 vs a light and a dark
+    /// menu bar) colors for network direction, chosen distinct from both
+    /// each other and from CPU/GPU's blue/orange: down #1B7F1B/#32D74B
+    /// (green, light-mode/dark-mode), up #A6006B/#FF375F (magenta/pink).
+    private static func networkDirectionColor(up: Bool) -> NSColor {
+        let (lightHex, darkHex) = up ? ("#A6006B", "#FF375F") : ("#1B7F1B", "#32D74B")
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return usageBarColor(hex: isDark ? darkHex : lightHex)
+        }
     }
 
     private static func usageBarColor(hex: String) -> NSColor {

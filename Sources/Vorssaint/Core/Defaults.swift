@@ -821,7 +821,7 @@ enum Defaults {
     static let allowedMouseClickDebounceWindowRange = 5...100
     static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
-    static let allowedMenuBarMetricAppearances = ["values", "bars"]
+    static let allowedMenuBarMetricAppearances = ["values", "bars", "sparklines"]
     static let defaultMenuBarMetricOrder = [
         "cpu", "cpuTemperature",
         "gpu", "gpuTemperature",

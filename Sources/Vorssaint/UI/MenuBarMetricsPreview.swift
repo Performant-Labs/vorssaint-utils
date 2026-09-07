@@ -135,6 +135,10 @@ struct MenuBarMetricsPreview: View {
                           fraction: fraction,
                           style: style,
                           pressure: pressure)
+        case let .sparklineBlock(label, values, maxValue, style):
+            sparklineBlock(label: label, values: values, maxValue: maxValue, style: style)
+        case let .networkSparklineBlock(upValues, downValues, style):
+            networkSparklineBlock(upValues: upValues, downValues: downValues, style: style)
         case let .networkBlock(down, up, style):
             let rows = networkUploadFirst ? [("↑", up), ("↓", down)] : [("↓", down), ("↑", up)]
             VStack(alignment: .trailing, spacing: -0.6) {
@@ -268,6 +272,126 @@ struct MenuBarMetricsPreview: View {
         .foregroundStyle(.white)
         .frame(width: size.width, height: size.height)
         .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private func sparklineBlock(label: String,
+                                values: [Double],
+                                maxValue: Double?,
+                                style: MenuBarBlockStyle) -> some View {
+        let size = MenuBarRenderer.sparklineSize(style: style)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let plotWidth: CGFloat = size.width - labelWidth - 2
+        let plotHeight: CGFloat = style == .readable ? 20 : 18
+        let color = values.last.map { sparklineColor(label: label, fraction: $0) } ?? Color.white.opacity(0.55)
+
+        return HStack(spacing: 2) {
+            VStack(spacing: -1.8) {
+                ForEach(Array(label.prefix(3).enumerated()), id: \.offset) { _, character in
+                    Text(String(character))
+                        .font(.system(size: style == .readable ? 6.5 : 6.1,
+                                      weight: .semibold))
+                        .frame(height: (size.height - 2) / 3)
+                }
+            }
+            .frame(width: style == .readable ? 6.5 : 6)
+
+            ZStack {
+                // Borderless, matching the actual menu bar render — see
+                // MenuBarRenderer.sparklineBlockImage for why.
+                if values.count >= 2 {
+                    Sparkline(values: values, color: color, maxValue: maxValue,
+                             fillOpacity: 0.92, lineWidth: 1.4)
+                } else {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.55))
+                        .frame(width: plotWidth - 0.6, height: 1)
+                }
+            }
+            .frame(width: plotWidth, height: plotHeight)
+        }
+        .foregroundStyle(.white)
+        .frame(width: size.width, height: size.height)
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    /// Mirrors `MenuBarRenderer.sparklineBlockImage`'s color choice: shared
+    /// threshold colors for elevated/critical, a distinct per-metric hue for
+    /// normal so CPU and GPU sparklines are never confusable at a glance.
+    /// This preview swatch always sits on a fixed near-black background (see
+    /// `body`'s `Color.black.opacity(0.82)`), so it always uses the
+    /// dark-appearance variant of the pair — unlike the real status item,
+    /// which switches with the actual menu bar appearance.
+    private func sparklineColor(label: String, fraction: Double) -> Color {
+        let level = MenuBarUsageBarSupport.currentLevel(for: fraction)
+        let hex: String
+        switch level {
+        case .normal:
+            switch label {
+            case "GPU": hex = "#FF9F0A"
+            case "RAM": hex = "#BF5AF2"
+            case "DSK": hex = "#A8E000"
+            default: hex = "#0A84FF"
+            }
+        case .elevated, .critical:
+            hex = MenuBarUsageBarSupport.currentColorHex(for: level)
+        }
+        let rgb = MenuBarUsageBarSupport.rgb(for: hex, fallback: MenuBarUsageBarSupport.defaultNormalColor)
+        return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
+    }
+
+    /// Mirrors `MenuBarRenderer.networkSparklineBlockImage`'s butterfly
+    /// layout: up in its natural bottom-up orientation (its baseline already
+    /// sits at the shared center line), down flipped vertically so its
+    /// baseline sits at that same center line but grows downward instead.
+    private func networkSparklineBlock(upValues: [Double],
+                                       downValues: [Double],
+                                       style: MenuBarBlockStyle) -> some View {
+        let size = MenuBarRenderer.sparklineSize(style: style)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let plotWidth: CGFloat = size.width - labelWidth - 2
+        let plotHeight: CGFloat = style == .readable ? 20 : 18
+        let sharedPeak = max(upValues.max() ?? 0, downValues.max() ?? 0, 0.0001)
+        // Dark-mode variants only: this preview always sits on a fixed
+        // near-black background, same rationale as sparklineColor above.
+        let upColor = networkColor(hex: "#FF375F")
+        let downColor = networkColor(hex: "#32D74B")
+
+        return HStack(spacing: 2) {
+            VStack(spacing: -1.8) {
+                ForEach(Array("NET".enumerated()), id: \.offset) { _, character in
+                    Text(String(character))
+                        .font(.system(size: style == .readable ? 6.5 : 6.1, weight: .semibold))
+                        .frame(height: (size.height - 2) / 3)
+                }
+            }
+            .frame(width: labelWidth)
+
+            VStack(spacing: 0) {
+                if upValues.count >= 2 {
+                    Sparkline(values: upValues, color: upColor, maxValue: sharedPeak,
+                             fillOpacity: 1.0, lineWidth: 1.2)
+                } else {
+                    Color.clear
+                }
+                Rectangle().fill(Color.white.opacity(0.35)).frame(height: 0.6)
+                if downValues.count >= 2 {
+                    Sparkline(values: downValues, color: downColor, maxValue: sharedPeak,
+                             fillOpacity: 1.0, lineWidth: 1.2)
+                        .scaleEffect(x: 1, y: -1)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: plotWidth, height: plotHeight)
+        }
+        .foregroundStyle(.white)
+        .frame(width: size.width, height: size.height)
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private func networkColor(hex: String) -> Color {
+        let rgb = MenuBarUsageBarSupport.rgb(for: hex, fallback: MenuBarUsageBarSupport.defaultNormalColor)
+        return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 
     private func usageBarColor(for fraction: Double) -> Color {

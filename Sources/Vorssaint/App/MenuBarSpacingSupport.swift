@@ -17,10 +17,17 @@ enum MenuBarMetricSpacing: String, CaseIterable {
 }
 /// How percentage based monitor readings appear in the menu bar. Values keep
 /// the existing numeric blocks; bars replace CPU, GPU, memory and disk usage
-/// with a compact vertical gauge. Readings without a fixed 0...100 scale stay
-/// numeric in either mode.
+/// with a compact vertical gauge; sparklines replace CPU, GPU and memory with
+/// a small rolling history line graph (fed by `SystemSnapshot.cpuHistory` /
+/// `gpuHistory` / `memoryHistory`, a few minutes wide), plus a mirrored
+/// up/down graph for Network. Disk usage also gets a sparkline, but on a
+/// completely different timescale — 30 days, hourly samples, persisted
+/// across launches (`DiskUsageHistoryStore`/`diskUsageHistory`) — because it
+/// changes far too slowly for the few-minutes window everything else uses to
+/// show anything but a flat line. Readings without a fixed 0...100 scale
+/// stay numeric in every mode.
 enum MenuBarMetricAppearance: String, CaseIterable {
-    case values, bars
+    case values, bars, sparklines
 
     var allowsCombinedTemperatures: Bool { self == .values }
 

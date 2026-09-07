@@ -43,12 +43,13 @@ struct MonitorSettings: View {
                 Picker(appearanceStrings.label, selection: $metricAppearance) {
                     Text(appearanceStrings.values).tag("values")
                     Text(appearanceStrings.bars).tag("bars")
+                    Text(appearanceStrings.sparklines).tag("sparklines")
                 }
                 .pickerStyle(.segmented)
                 Text(appearanceStrings.caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if appearance == .bars {
+                if appearance == .bars || appearance == .sparklines {
                     MenuBarUsageBarSettings(strings: appearanceStrings)
                 } else {
                     Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures)

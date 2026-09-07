@@ -114,15 +114,24 @@ final class StatusItemHoverPanel {
     /// every refresh as the live values change width (e.g. "CPU 8%" vs
     /// "CPU 46%") — a distracting wobble while the values it's meant to be
     /// read are updating. A fixed left edge only ever grows/shrinks to the
-    /// right, so the panel itself stays put.
+    /// right, so the panel itself stays put — except when that would run
+    /// past the right edge of the screen, which a status item near the end
+    /// of a crowded menu bar does routinely; that case pulls the panel back
+    /// onto screen instead.
     func show(near buttonScreenFrame: NSRect, content: StatusItemHoverContent) {
         guard !content.isEmpty else { return }
         apply(content)
         container.layoutSubtreeIfNeeded()
         let fittingSize = container.fittingSize
         let contentSize = NSSize(width: fittingSize.width + 24, height: fittingSize.height + 18)
-        let x = buttonScreenFrame.minX
-        let y = buttonScreenFrame.minY - contentSize.height - 4
+        var x = buttonScreenFrame.minX
+        var y = buttonScreenFrame.minY - contentSize.height - 4
+        if let screenFrame = (NSScreen.screens.first { $0.frame.contains(buttonScreenFrame.origin) }
+                              ?? NSScreen.main)?.visibleFrame {
+            x = min(x, screenFrame.maxX - contentSize.width)
+            x = max(x, screenFrame.minX)
+            y = max(y, screenFrame.minY)
+        }
         panel.setFrame(NSRect(x: x, y: y, width: contentSize.width, height: contentSize.height),
                        display: true)
         panel.orderFront(nil)

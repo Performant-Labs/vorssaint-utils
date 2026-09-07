@@ -875,37 +875,46 @@ enum MenuBarRenderer {
         let value: String
     }
 
+    /// Builds this one metric's row, or nil if it isn't sparkline-eligible
+    /// or its reading isn't available yet — kept separate from
+    /// `sparklineToolTipRows` so that function can iterate `metrics` in the
+    /// caller's actual order instead of a hardcoded one.
+    private static func sparklineToolTipRow(for metric: MenuBarMetric,
+                                            snapshot: SystemSnapshot) -> HoverMetricRow? {
+        switch metric {
+        case .cpu:
+            guard let usage = snapshot.cpuUsage else { return nil }
+            return HoverMetricRow(symbolName: metric.symbolName, label: "CPU", value: percent(usage))
+        case .gpu:
+            guard let usage = snapshot.gpuUsage else { return nil }
+            return HoverMetricRow(symbolName: metric.symbolName, label: "GPU", value: percent(usage))
+        case .memory:
+            let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
+            guard let fraction = MenuBarUsageBarSupport.memoryFraction(used: memoryValue, total: snapshot.memoryTotal)
+            else { return nil }
+            return HoverMetricRow(symbolName: metric.symbolName, label: "RAM", value: percent(fraction))
+        case .network:
+            guard let down = snapshot.netDownBytesPerSec, let up = snapshot.netUpBytesPerSec else { return nil }
+            return HoverMetricRow(symbolName: metric.symbolName,
+                                  label: "Net",
+                                  value: "↓" + MetricFormat.bytesPerSecCompact(down)
+                                         + " ↑" + MetricFormat.bytesPerSecCompact(up))
+        case .diskUsage:
+            guard let disk = primaryDisk(from: snapshot.disk) else { return nil }
+            return HoverMetricRow(symbolName: metric.symbolName, label: "DSK", value: percent(disk.usedFraction))
+        default:
+            return nil
+        }
+    }
+
+    /// Rows in the same order the metric appears in the menu bar — `metrics`
+    /// is already the user's configured order (`MenuBarMetric.enabled`
+    /// respects `MenuBarMetric.order`), so the tooltip should read left to
+    /// right the same way the status item does, not in a fixed CPU-first
+    /// order regardless of how the user arranged things.
     static func sparklineToolTipRows(for snapshot: SystemSnapshot, metrics: [MenuBarMetric]) -> [HoverMetricRow] {
         guard MenuBarMetricAppearance.current == .sparklines else { return [] }
-        var rows: [HoverMetricRow] = []
-        if metrics.contains(.cpu), let usage = snapshot.cpuUsage {
-            rows.append(HoverMetricRow(symbolName: MenuBarMetric.cpu.symbolName, label: "CPU", value: percent(usage)))
-        }
-        if metrics.contains(.gpu), let usage = snapshot.gpuUsage {
-            rows.append(HoverMetricRow(symbolName: MenuBarMetric.gpu.symbolName, label: "GPU", value: percent(usage)))
-        }
-        if metrics.contains(.memory) {
-            let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
-            if let fraction = MenuBarUsageBarSupport.memoryFraction(used: memoryValue, total: snapshot.memoryTotal) {
-                rows.append(HoverMetricRow(symbolName: MenuBarMetric.memory.symbolName,
-                                           label: "RAM",
-                                           value: percent(fraction)))
-            }
-        }
-        if metrics.contains(.network),
-           let down = snapshot.netDownBytesPerSec,
-           let up = snapshot.netUpBytesPerSec {
-            rows.append(HoverMetricRow(symbolName: MenuBarMetric.network.symbolName,
-                                       label: "Net",
-                                       value: "↓" + MetricFormat.bytesPerSecCompact(down)
-                                              + " ↑" + MetricFormat.bytesPerSecCompact(up)))
-        }
-        if metrics.contains(.diskUsage), let disk = primaryDisk(from: snapshot.disk) {
-            rows.append(HoverMetricRow(symbolName: MenuBarMetric.diskUsage.symbolName,
-                                       label: "DSK",
-                                       value: percent(disk.usedFraction)))
-        }
-        return rows
+        return metrics.compactMap { sparklineToolTipRow(for: $0, snapshot: snapshot) }
     }
 
     /// Same data as `sparklineToolTipRows`, joined into one line — for the

@@ -1388,12 +1388,12 @@ enum MenuBarRenderer {
 
     /// A "butterfly" graph: upload grows up from a center line, download
     /// grows down from it, sharing one peak so their heights are directly
-    /// comparable. Down and up are always their own fixed colors (green and
-    /// magenta/pink) rather than the shared Normal/Medium/High Settings
-    /// colors — direction, not usage level, is what this graph communicates,
-    /// so there's no "normal tier" for a Settings color to apply to. Same
-    /// light/dark-adaptive, WCAG 1.4.11-validated approach as
-    /// `networkDirectionColor` below.
+    /// comparable. Down and up get their own pair of Settings colors
+    /// (Download/Upload), separate from Normal/Medium/High — direction, not
+    /// usage level, is what this graph communicates, so there's no "normal
+    /// tier" for those three to apply to. Defaults to green/indigo rather
+    /// than the red/magenta this used before, which read as an unrelated
+    /// palette next to Critical's own red.
     private static func networkSparklineBlockImage(upValues: [Double],
                                                     downValues: [Double],
                                                     style: MenuBarBlockStyle) -> NSImage {
@@ -1477,16 +1477,12 @@ enum MenuBarRenderer {
         return image
     }
 
-    /// Light/dark-adaptive, WCAG 1.4.11-checked (≥3:1 vs a light and a dark
-    /// menu bar) colors for network direction, chosen distinct from both
-    /// each other and from CPU/GPU's blue/orange: down #1B7F1B/#32D74B
-    /// (green, light-mode/dark-mode), up #A6006B/#FF375F (magenta/pink).
+    /// Settings-driven color for network direction (Download/Upload in
+    /// Settings → Monitor), same mechanism as Normal/Medium/High: one fixed
+    /// hex from the user's preference, not appearance-adaptive.
     private static func networkDirectionColor(up: Bool) -> NSColor {
-        let (lightHex, darkHex) = up ? ("#A6006B", "#FF375F") : ("#1B7F1B", "#32D74B")
-        return NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return usageBarColor(hex: isDark ? darkHex : lightHex)
-        }
+        let hex = MenuBarUsageBarSupport.currentNetworkColorHex(for: up ? .upload : .download)
+        return usageBarColor(hex: hex)
     }
 
     private static func usageBarColor(hex: String) -> NSColor {

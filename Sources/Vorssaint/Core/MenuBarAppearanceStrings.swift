@@ -13,6 +13,8 @@ struct MenuBarAppearanceStrings {
     let normalColor: String
     let mediumColor: String
     let highColor: String
+    let downloadColor: String
+    let uploadColor: String
     let mediumFrom: String
     let highFrom: String
 }
@@ -48,6 +50,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Normal color",
         mediumColor: "Medium color",
         highColor: "High color",
+        downloadColor: "Download color",
+        uploadColor: "Upload color",
         mediumFrom: "Medium from",
         highFrom: "High from"
     )
@@ -62,6 +66,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Cor normal",
         mediumColor: "Cor média",
         highColor: "Cor alta",
+        downloadColor: "Cor de download",
+        uploadColor: "Cor de upload",
         mediumFrom: "Médio a partir de",
         highFrom: "Alto a partir de"
     )
@@ -76,6 +82,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Normal renk",
         mediumColor: "Orta renk",
         highColor: "Yüksek renk",
+        downloadColor: "İndirme rengi",
+        uploadColor: "Yükleme rengi",
         mediumFrom: "Orta başlangıcı",
         highFrom: "Yüksek başlangıcı"
     )
@@ -90,6 +98,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Обычный цвет",
         mediumColor: "Средний цвет",
         highColor: "Высокий цвет",
+        downloadColor: "Цвет скачивания",
+        uploadColor: "Цвет отправки",
         mediumFrom: "Средний от",
         highFrom: "Высокий от"
     )
@@ -104,6 +114,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Color normal",
         mediumColor: "Color medio",
         highColor: "Color alto",
+        downloadColor: "Color de descarga",
+        uploadColor: "Color de subida",
         mediumFrom: "Medio desde",
         highFrom: "Alto desde"
     )
@@ -118,6 +130,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Normale Farbe",
         mediumColor: "Mittlere Farbe",
         highColor: "Hohe Farbe",
+        downloadColor: "Download-Farbe",
+        uploadColor: "Upload-Farbe",
         mediumFrom: "Mittel ab",
         highFrom: "Hoch ab"
     )
@@ -132,6 +146,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Couleur normale",
         mediumColor: "Couleur moyenne",
         highColor: "Couleur élevée",
+        downloadColor: "Couleur de téléchargement",
+        uploadColor: "Couleur d’envoi",
         mediumFrom: "Moyen à partir de",
         highFrom: "Élevé à partir de"
     )
@@ -146,6 +162,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "Colore normale",
         mediumColor: "Colore medio",
         highColor: "Colore alto",
+        downloadColor: "Colore di download",
+        uploadColor: "Colore di upload",
         mediumFrom: "Medio da",
         highFrom: "Alto da"
     )
@@ -160,6 +178,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "通常の色",
         mediumColor: "中程度の色",
         highColor: "高負荷の色",
+        downloadColor: "ダウンロードの色",
+        uploadColor: "アップロードの色",
         mediumFrom: "中程度の開始",
         highFrom: "高負荷の開始"
     )
@@ -174,6 +194,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "보통 색상",
         mediumColor: "중간 색상",
         highColor: "높음 색상",
+        downloadColor: "다운로드 색상",
+        uploadColor: "업로드 색상",
         mediumFrom: "중간 시작",
         highFrom: "높음 시작"
     )
@@ -188,6 +210,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "正常颜色",
         mediumColor: "中等颜色",
         highColor: "高负载颜色",
+        downloadColor: "下载颜色",
+        uploadColor: "上传颜色",
         mediumFrom: "中等起点",
         highFrom: "高负载起点"
     )
@@ -202,6 +226,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "正常顏色",
         mediumColor: "中等顏色",
         highColor: "高負載顏色",
+        downloadColor: "下載顏色",
+        uploadColor: "上傳顏色",
         mediumFrom: "中等起點",
         highFrom: "高負載起點"
     )
@@ -216,6 +242,8 @@ extension MenuBarAppearanceStrings {
         normalColor: "正常顏色",
         mediumColor: "中等顏色",
         highColor: "高負載顏色",
+        downloadColor: "下載顏色",
+        uploadColor: "上傳顏色",
         mediumFrom: "中等起點",
         highFrom: "高負載起點"
     )

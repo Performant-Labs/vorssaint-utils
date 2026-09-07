@@ -27,6 +27,8 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DefaultsKey.menuBarUsageBarNormalColor) private var usageBarNormalColor = "#64D2FF"
     @AppStorage(DefaultsKey.menuBarUsageBarElevatedColor) private var usageBarElevatedColor = "#FFD60A"
     @AppStorage(DefaultsKey.menuBarUsageBarCriticalColor) private var usageBarCriticalColor = "#FF453A"
+    @AppStorage(DefaultsKey.menuBarNetworkDownloadColor) private var networkDownloadColor = MenuBarUsageBarSupport.defaultNetworkDownloadColor
+    @AppStorage(DefaultsKey.menuBarNetworkUploadColor) private var networkUploadColor = MenuBarUsageBarSupport.defaultNetworkUploadColor
     @AppStorage(DefaultsKey.menuBarUsageBarMediumThreshold) private var usageBarMediumThreshold = 70
     @AppStorage(DefaultsKey.menuBarUsageBarHighThreshold) private var usageBarHighThreshold = 90
     @AppStorage(DefaultsKey.menuBarLabelStyle) private var labelStyle = "compact"
@@ -282,7 +284,7 @@ struct MenuBarMetricsPreview: View {
         let labelWidth: CGFloat = style == .readable ? 6.5 : 6
         let plotWidth: CGFloat = size.width - labelWidth - 2
         let plotHeight: CGFloat = style == .readable ? 20 : 18
-        let color = values.last.map { sparklineColor(label: label, fraction: $0) } ?? Color.white.opacity(0.55)
+        let color = values.last.map { sparklineColor(fraction: $0) } ?? Color.white.opacity(0.55)
 
         return HStack(spacing: 2) {
             VStack(spacing: -1.8) {
@@ -314,27 +316,13 @@ struct MenuBarMetricsPreview: View {
         .fixedSize(horizontal: true, vertical: true)
     }
 
-    /// Mirrors `MenuBarRenderer.sparklineBlockImage`'s color choice: shared
-    /// threshold colors for elevated/critical, a distinct per-metric hue for
-    /// normal so CPU and GPU sparklines are never confusable at a glance.
-    /// This preview swatch always sits on a fixed near-black background (see
-    /// `body`'s `Color.black.opacity(0.82)`), so it always uses the
-    /// dark-appearance variant of the pair — unlike the real status item,
-    /// which switches with the actual menu bar appearance.
-    private func sparklineColor(label: String, fraction: Double) -> Color {
+    /// Mirrors `MenuBarRenderer.sparklineBlockImage`'s color choice: the same
+    /// Settings-driven Normal/Medium/High colors at every tier, for every
+    /// metric — no per-metric hue any more, so this preview stays truthful
+    /// to what actually renders in the menu bar.
+    private func sparklineColor(fraction: Double) -> Color {
         let level = MenuBarUsageBarSupport.currentLevel(for: fraction)
-        let hex: String
-        switch level {
-        case .normal:
-            switch label {
-            case "GPU": hex = "#FF9F0A"
-            case "RAM": hex = "#BF5AF2"
-            case "DSK": hex = "#A8E000"
-            default: hex = "#0A84FF"
-            }
-        case .elevated, .critical:
-            hex = MenuBarUsageBarSupport.currentColorHex(for: level)
-        }
+        let hex = MenuBarUsageBarSupport.currentColorHex(for: level)
         let rgb = MenuBarUsageBarSupport.rgb(for: hex, fallback: MenuBarUsageBarSupport.defaultNormalColor)
         return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
@@ -351,10 +339,8 @@ struct MenuBarMetricsPreview: View {
         let plotWidth: CGFloat = size.width - labelWidth - 2
         let plotHeight: CGFloat = style == .readable ? 20 : 18
         let sharedPeak = max(upValues.max() ?? 0, downValues.max() ?? 0, 0.0001)
-        // Dark-mode variants only: this preview always sits on a fixed
-        // near-black background, same rationale as sparklineColor above.
-        let upColor = networkColor(hex: "#FF375F")
-        let downColor = networkColor(hex: "#32D74B")
+        let upColor = networkColor(hex: MenuBarUsageBarSupport.currentNetworkColorHex(for: .upload))
+        let downColor = networkColor(hex: MenuBarUsageBarSupport.currentNetworkColorHex(for: .download))
 
         return HStack(spacing: 2) {
             VStack(spacing: -1.8) {

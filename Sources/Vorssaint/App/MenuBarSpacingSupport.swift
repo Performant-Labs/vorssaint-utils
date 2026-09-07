@@ -42,6 +42,12 @@ enum MenuBarUsageBarSupport {
     static let defaultNormalColor = "#64D2FF"
     static let defaultElevatedColor = "#FFD60A"
     static let defaultCriticalColor = "#FF453A"
+    // Green/indigo, not the red/magenta pair the network graph used before —
+    // Critical above is already this app's one "red", and a second,
+    // unrelated red-ish hue on the network graph read as an unrelated
+    // palette rather than part of the same three-tier system.
+    static let defaultNetworkDownloadColor = "#34C759"
+    static let defaultNetworkUploadColor = "#5E5CE6"
     static let defaultMediumThreshold = 70
     static let defaultHighThreshold = 90
 
@@ -109,6 +115,22 @@ enum MenuBarUsageBarSupport {
         case .critical:
             return sanitizedColorHex(defaults.string(forKey: DefaultsKey.menuBarUsageBarCriticalColor),
                                      fallback: defaultCriticalColor)
+        }
+    }
+
+    enum NetworkDirection {
+        case download, upload
+    }
+
+    static func currentNetworkColorHex(for direction: NetworkDirection,
+                                       defaults: UserDefaults = .standard) -> String {
+        switch direction {
+        case .download:
+            return sanitizedColorHex(defaults.string(forKey: DefaultsKey.menuBarNetworkDownloadColor),
+                                     fallback: defaultNetworkDownloadColor)
+        case .upload:
+            return sanitizedColorHex(defaults.string(forKey: DefaultsKey.menuBarNetworkUploadColor),
+                                     fallback: defaultNetworkUploadColor)
         }
     }
 

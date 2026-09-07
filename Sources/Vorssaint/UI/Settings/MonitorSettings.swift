@@ -43,12 +43,13 @@ struct MonitorSettings: View {
                 Picker(appearanceStrings.label, selection: $metricAppearance) {
                     Text(appearanceStrings.values).tag("values")
                     Text(appearanceStrings.bars).tag("bars")
+                    Text(appearanceStrings.sparklines).tag("sparklines")
                 }
                 .pickerStyle(.segmented)
                 Text(appearanceStrings.caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if appearance == .bars {
+                if appearance == .bars || appearance == .sparklines {
                     MenuBarUsageBarSettings(strings: appearanceStrings)
                 } else {
                     Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures)
@@ -177,8 +178,11 @@ private struct MenuBarUsageBarSettings: View {
     @AppStorage(DefaultsKey.menuBarUsageBarNormalColor) private var normalColor = MenuBarUsageBarSupport.defaultNormalColor
     @AppStorage(DefaultsKey.menuBarUsageBarElevatedColor) private var elevatedColor = MenuBarUsageBarSupport.defaultElevatedColor
     @AppStorage(DefaultsKey.menuBarUsageBarCriticalColor) private var criticalColor = MenuBarUsageBarSupport.defaultCriticalColor
+    @AppStorage(DefaultsKey.menuBarNetworkDownloadColor) private var downloadColor = MenuBarUsageBarSupport.defaultNetworkDownloadColor
+    @AppStorage(DefaultsKey.menuBarNetworkUploadColor) private var uploadColor = MenuBarUsageBarSupport.defaultNetworkUploadColor
     @AppStorage(DefaultsKey.menuBarUsageBarMediumThreshold) private var mediumThreshold = MenuBarUsageBarSupport.defaultMediumThreshold
     @AppStorage(DefaultsKey.menuBarUsageBarHighThreshold) private var highThreshold = MenuBarUsageBarSupport.defaultHighThreshold
+    @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -197,6 +201,22 @@ private struct MenuBarUsageBarSettings: View {
                         selection: colorBinding($criticalColor,
                                                 fallback: MenuBarUsageBarSupport.defaultCriticalColor),
                         supportsOpacity: false)
+
+            // Network's up/down colors are only ever drawn in Histogram mode
+            // (Bars mode shows network as plain numeric rates, not a colored
+            // graph) — a Normal/Medium/High usage level doesn't apply to a
+            // direction, so these two live alongside rather than replacing
+            // any of the three above.
+            if MenuBarMetricAppearance(rawValue: Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)) == .sparklines {
+                ColorPicker(strings.downloadColor,
+                            selection: colorBinding($downloadColor,
+                                                    fallback: MenuBarUsageBarSupport.defaultNetworkDownloadColor),
+                            supportsOpacity: false)
+                ColorPicker(strings.uploadColor,
+                            selection: colorBinding($uploadColor,
+                                                    fallback: MenuBarUsageBarSupport.defaultNetworkUploadColor),
+                            supportsOpacity: false)
+            }
 
             Divider()
 
@@ -250,6 +270,10 @@ private struct MenuBarUsageBarSettings: View {
                                                                  fallback: MenuBarUsageBarSupport.defaultElevatedColor)
         criticalColor = MenuBarUsageBarSupport.sanitizedColorHex(criticalColor,
                                                                  fallback: MenuBarUsageBarSupport.defaultCriticalColor)
+        downloadColor = MenuBarUsageBarSupport.sanitizedColorHex(downloadColor,
+                                                                 fallback: MenuBarUsageBarSupport.defaultNetworkDownloadColor)
+        uploadColor = MenuBarUsageBarSupport.sanitizedColorHex(uploadColor,
+                                                               fallback: MenuBarUsageBarSupport.defaultNetworkUploadColor)
         let thresholds = MenuBarUsageBarSupport.thresholds(medium: mediumThreshold,
                                                            high: highThreshold)
         mediumThreshold = thresholds.medium

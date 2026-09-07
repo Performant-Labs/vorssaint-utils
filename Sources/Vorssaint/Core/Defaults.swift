@@ -318,6 +318,8 @@ enum DefaultsKey {
     static let menuBarUsageBarNormalColor = "menuBarUsageBarNormalColor" // #RRGGBB
     static let menuBarUsageBarElevatedColor = "menuBarUsageBarElevatedColor" // #RRGGBB
     static let menuBarUsageBarCriticalColor = "menuBarUsageBarCriticalColor" // #RRGGBB
+    static let menuBarNetworkDownloadColor = "menuBarNetworkDownloadColor" // #RRGGBB
+    static let menuBarNetworkUploadColor = "menuBarNetworkUploadColor" // #RRGGBB
     static let menuBarUsageBarMediumThreshold = "menuBarUsageBarMediumThreshold" // percent
     static let menuBarUsageBarHighThreshold = "menuBarUsageBarHighThreshold" // percent
     static let menuBarHideIconWithMetrics = "menuBarHideIconWithMetrics" // glyph hides while metrics render in the main item
@@ -821,7 +823,7 @@ enum Defaults {
     static let allowedMouseClickDebounceWindowRange = 5...100
     static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
-    static let allowedMenuBarMetricAppearances = ["values", "bars"]
+    static let allowedMenuBarMetricAppearances = ["values", "bars", "sparklines"]
     static let defaultMenuBarMetricOrder = [
         "cpu", "cpuTemperature",
         "gpu", "gpuTemperature",
@@ -1106,6 +1108,8 @@ enum Defaults {
         DefaultsKey.menuBarUsageBarNormalColor: "#64D2FF",
         DefaultsKey.menuBarUsageBarElevatedColor: "#FFD60A",
         DefaultsKey.menuBarUsageBarCriticalColor: "#FF453A",
+        DefaultsKey.menuBarNetworkDownloadColor: "#34C759",
+        DefaultsKey.menuBarNetworkUploadColor: "#5E5CE6",
         DefaultsKey.menuBarUsageBarMediumThreshold: 70,
         DefaultsKey.menuBarUsageBarHighThreshold: 90,
         DefaultsKey.menuBarHideIconWithMetrics: false,

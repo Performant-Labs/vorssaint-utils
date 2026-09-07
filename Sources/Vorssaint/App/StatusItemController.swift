@@ -6,7 +6,7 @@ import Combine
 
 /// Owns the menu bar presence: the black hole glyph, the optional countdown
 /// title and the tooltip. Click handling is delegated back to the AppDelegate.
-final class StatusItemController {
+final class StatusItemController: NSObject {
     var onLeftClick: (() -> Void)?
     var onRightClick: (() -> Void)?
     var onMetricClick: ((MenuBarMetric, NSStatusBarButton) -> Void)?
@@ -35,6 +35,11 @@ final class StatusItemController {
     /// is answered once afterwards rather than on top of it.
     private var isRefreshing = false
     private var refreshRequestedWhileRunning = false
+    /// Custom-styled replacement for the system tooltip (see
+    /// StatusItemHoverPanel), so the sparkline summary is actually readable.
+    private let hoverPanel = StatusItemHoverPanel()
+    private var lastHoverContent = StatusItemHoverContent.empty
+    private var hoverPollTimer: Timer?
     private static let mainAutosaveName = "VorssaintMenuBarItem"
     private static let metricAutosavePrefix = "VorssaintMetric"
     private static let maxPlacementGeneration = 10_000
@@ -70,7 +75,8 @@ final class StatusItemController {
         }
     }
 
-    init() {
+    override init() {
+        super.init()
         installStatusItem()
         bind()
     }
@@ -102,6 +108,7 @@ final class StatusItemController {
             button.action = #selector(clicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        startHoverPolling()
         refresh()
         syncMonitorMode()
         updateIconAppearance()
@@ -184,6 +191,7 @@ final class StatusItemController {
         // so a future "recreate the status item" path can't leak a firing timer or
         // a block observer that outlives this instance.
         titleTimer?.invalidate()
+        hoverPollTimer?.invalidate()
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         for item in metricStatusItems.values {
             NSStatusBar.system.removeStatusItem(item)
@@ -318,6 +326,41 @@ final class StatusItemController {
         }
     }
 
+    /// Polls the cursor position against the button's screen frame instead
+    /// of using `NSTrackingArea`. Three attempts at a tracking area on this
+    /// specific button (`NSStatusBarButton`) each broke differently: an
+    /// owner that wasn't NSObject-derived crashed on the very first
+    /// dispatch, making it NSObject-derived left the area installed but
+    /// silent (zero fires, confirmed via logging), and even a silent,
+    /// never-firing area still visibly interfered with the button's own
+    /// image redraw during hover (CPU/GPU sparklines froze mid-animation
+    /// while Network kept going, with no callback of ours involved at all).
+    /// That last symptom means the tracking area's mere presence disturbed
+    /// something in the button's internal highlight/redraw machinery, not
+    /// just our own dispatch — so this avoids AppKit's per-view tracking
+    /// system for this button entirely.
+    private func startHoverPolling() {
+        hoverPollTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
+            self?.pollHoverState()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hoverPollTimer = timer
+    }
+
+    private func pollHoverState() {
+        guard let button = statusItem?.button, let window = button.window else { return }
+        let buttonFrameOnScreen = window.convertToScreen(button.convert(button.bounds, to: nil))
+        let isInside = buttonFrameOnScreen.contains(NSEvent.mouseLocation)
+        if isInside {
+            if !lastHoverContent.isEmpty {
+                hoverPanel.show(near: buttonFrameOnScreen, content: lastHoverContent)
+            }
+        } else if hoverPanel.isVisible {
+            hoverPanel.hide()
+        }
+    }
+
     /// Updates the countdown title and tooltip from the current session state.
     func refresh() {
         guard !isRefreshing else {
@@ -444,7 +487,7 @@ final class StatusItemController {
             }
         }
 
-        let toolTip: String
+        var toolTip: String
         if manager.isActive {
             if manager.sessionTrigger == .automation {
                 toolTip = FeatureStrings.keepAwakeAutomation(L10n.shared.language)
@@ -457,8 +500,21 @@ final class StatusItemController {
         } else {
             toolTip = strings.statusIdleTooltip
         }
-        if button.toolTip != toolTip {
-            button.toolTip = toolTip
+        // Sparkline mode trades each metric's literal number for a graph
+        // shape, so the number comes back here: one combined tooltip for
+        // the whole status item instead of a separate tooltip per graph
+        // (see MenuBarRenderer.sparklineToolTipRows). Shown through the
+        // custom StatusItemHoverPanel, not the system tooltip — the system
+        // one has a fixed small font with no public styling API, which is
+        // exactly what this replaces.
+        let hoverRows = MenuBarRenderer.sparklineToolTipRows(for: snapshot, metrics: metrics)
+        lastHoverContent = StatusItemHoverContent(symbolName: "moon.zzz.fill", headline: toolTip, rows: hoverRows)
+        if hoverPanel.isVisible, let window = button.window {
+            let buttonFrameOnScreen = window.convertToScreen(button.convert(button.bounds, to: nil))
+            hoverPanel.show(near: buttonFrameOnScreen, content: lastHoverContent)
+        }
+        if button.toolTip != nil {
+            button.toolTip = nil
         }
 
         // The icon decision depends on the title just written (the glyph may
@@ -516,8 +572,15 @@ final class StatusItemController {
             if button.imagePosition != .noImage {
                 button.imagePosition = .noImage
             }
-            if button.toolTip != group.title {
-                button.toolTip = group.title
+            // Each metric already has its own status item in this mode, so
+            // this tooltip is genuinely per-graph — no shared-rect problem
+            // to solve here, unlike the single combined status item.
+            var toolTip = group.title
+            if let sparklineSummary = MenuBarRenderer.sparklineToolTip(for: snapshot, metrics: group.metrics) {
+                toolTip += "\n" + sparklineSummary
+            }
+            if button.toolTip != toolTip {
+                button.toolTip = toolTip
             }
         }
     }

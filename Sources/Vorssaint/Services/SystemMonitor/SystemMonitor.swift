@@ -71,6 +71,10 @@ struct SystemSnapshot {
     var memoryAppHistory: [Double] = []    // 0...1
     var netDownHistory: [Double] = []      // bytes/sec
     var netUpHistory: [Double] = []        // bytes/sec
+    /// One sample per hour, up to 30 days — see DiskUsageHistoryStore. Not a
+    /// `0...1`-per-tick rolling window like the other `*History` arrays: a
+    /// completely different timescale for a metric that moves far slower.
+    var diskUsageHistory: [Double] = []    // 0...1, hourly over up to 30 days
     var diskReadHistory: [Double] = []     // bytes/sec
     var diskWriteHistory: [Double] = []    // bytes/sec
     var systemPowerHistory: [Double] = []  // watts
@@ -182,6 +186,7 @@ final class SystemMonitor: ObservableObject {
     private var memoryAppHistory: MetricHistory
     private var netDownHistory: MetricHistory
     private var netUpHistory: MetricHistory
+    private let diskUsageHistoryStore = DiskUsageHistoryStore()
     private var diskReadHistory: MetricHistory
     private var diskWriteHistory: MetricHistory
     private var powerHistory: MetricHistory
@@ -594,6 +599,17 @@ final class SystemMonitor: ObservableObject {
         refreshInFlight = true
         let suppressGPUReadsUntil = self.suppressGPUReadsUntil
         let foregroundSampling = fullMonitorVisible || menuPanelNeeds.any
+        // The menu bar's own CPU/GPU sparklines are graph surfaces too, and
+        // unlike the dropdown panel they're on screen whenever that metric is
+        // pinned there — not just while the panel happens to be open.
+        // Without this, publishedValues(whileVisible:) always returns empty
+        // for a menu-bar-only sparkline, since `foregroundSampling` alone
+        // never becomes true for it.
+        let sparklinesActive = MenuBarMetricAppearance.current == .sparklines
+        let menuBarCPUSparklineVisible = sparklinesActive && defaults.bool(forKey: DefaultsKey.menuBarCPU)
+        let menuBarGPUSparklineVisible = sparklinesActive && defaults.bool(forKey: DefaultsKey.menuBarGPU)
+        let menuBarNetworkSparklineVisible = sparklinesActive && defaults.bool(forKey: DefaultsKey.menuBarNetwork)
+        let menuBarMemorySparklineVisible = sparklinesActive && defaults.bool(forKey: DefaultsKey.menuBarMemory)
         let intervalSeconds = self.intervalSeconds
         // Ticks advance by the timer's cadence so `tick % stride` keeps
         // measuring base intervals; mutated on main only, read by the queue
@@ -674,6 +690,9 @@ final class SystemMonitor: ObservableObject {
                     let disk = self.diskSampler.sample(now: now, refreshMetadata: foregroundSampling)
                     self.lastDiskReading = disk
                     next.disk = disk
+                    if let primary = disk.devices.first(where: { $0.isInternal }) ?? disk.devices.first {
+                        self.diskUsageHistoryStore.record(fraction: primary.usedFraction)
+                    }
                     let ioDevices = disk.uniqueIODevices
                     let readValues = ioDevices.compactMap(\.readBytesPerSec)
                     let writeValues = ioDevices.compactMap(\.writeBytesPerSec)
@@ -789,17 +808,22 @@ final class SystemMonitor: ObservableObject {
             }
 
             next.cpuHistory = plan.needCPU
-                ? self.cpuHistory.publishedValues(whileVisible: foregroundSampling) : []
+                ? self.cpuHistory.publishedValues(whileVisible: foregroundSampling || menuBarCPUSparklineVisible) : []
             next.gpuHistory = plan.needGPUUsage
-                ? self.gpuHistory.publishedValues(whileVisible: foregroundSampling) : []
+                ? self.gpuHistory.publishedValues(whileVisible: foregroundSampling || menuBarGPUSparklineVisible) : []
             next.memoryHistory = plan.needMemory
-                ? self.memoryHistory.publishedValues(whileVisible: foregroundSampling) : []
+                ? self.memoryHistory.publishedValues(whileVisible: foregroundSampling || menuBarMemorySparklineVisible) : []
             next.memoryAppHistory = plan.needMemory
-                ? self.memoryAppHistory.publishedValues(whileVisible: foregroundSampling) : []
+                ? self.memoryAppHistory.publishedValues(whileVisible: foregroundSampling || menuBarMemorySparklineVisible) : []
             next.netDownHistory = plan.needNetwork
-                ? self.netDownHistory.publishedValues(whileVisible: foregroundSampling) : []
+                ? self.netDownHistory.publishedValues(whileVisible: foregroundSampling || menuBarNetworkSparklineVisible) : []
             next.netUpHistory = plan.needNetwork
-                ? self.netUpHistory.publishedValues(whileVisible: foregroundSampling) : []
+                ? self.netUpHistory.publishedValues(whileVisible: foregroundSampling || menuBarNetworkSparklineVisible) : []
+            // Unlike the fast in-memory histories, this doesn't need a
+            // whileVisible gate: at most 720 doubles, refreshed at most
+            // once an hour, so publishing it every tick regardless of
+            // foreground state costs nothing worth optimizing away.
+            next.diskUsageHistory = plan.needDisk ? self.diskUsageHistoryStore.values : []
             next.diskReadHistory = plan.needDisk
                 ? self.diskReadHistory.publishedValues(whileVisible: foregroundSampling) : []
             next.diskWriteHistory = plan.needDisk
